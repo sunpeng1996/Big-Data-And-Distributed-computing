@@ -1,2 +1,4 @@
-# Alibaba-Middleware-Performance-Challenge
-阿里中间件性能挑战赛-跃跃欲试
+# Big-Data-And-Distributed-computing
+
+
+大数据与分布式计算-Studying
