@@ -19,3 +19,36 @@ kafka笔记
 7.  消费者可以分组，比如有两个消费者组A和B，共同消费一个topic：order_info,A和B所消费的消息不会重复，比如 order_info 中有100个消息，每个消息有一个id,编号从0-99，那么，如果A组消费0-49号，B组就消费50-99号。
 8.  消费者在具体消费某个topic中的消息时，可以指定起始偏移量
 
+
+
+
+## 集群安装 ##
+1、解压
+
+2、修改server.properties
+
+    broker.id=1
+    zookeeper.connect=weekend05:2181,weekend06:2181,weekend07:2181
+
+3、将zookeeper集群启动
+
+4、在每一台节点上启动broker
+
+    bin/kafka-server-start.sh config/server.properties
+
+5、在kafka集群中创建一个topic
+    
+    bin/kafka-topics.sh --create --zookeeper weekend05:2181 --replication-factor 3 --partitions 1 --topic order
+
+6、用一个producer向某一个topic中写入消息
+
+    bin/kafka-console-producer.sh --broker-list weekend:9092 --topic order
+
+7、用一个comsumer从某一个topic中读取信息
+    
+    bin/kafka-console-consumer.sh --zookeeper weekend05:2181 --from-beginning --topic order
+
+8、查看一个topic的分区及副本状态信息
+
+    bin/kafka-topics.sh --describe --zookeeper weekend05:2181 --topic order
+
