@@ -81,3 +81,77 @@ Bolts的主要方法是execute，它以一个tuple作为输入，发射0个或�
 8.Workers：一个Topology可能会存在一个或者多个Worker（工作进程）里面执行，每个worker是一个物理JVM并且执行topo的一部分。比如并行度是300的Topo，如果我们使用50个工作进程来执行这个Topo,那么每个工作进程会处理大约6个tasks。
 
 9.Configuration：Storm里面有一大堆参数可以配置Storm的某些属性设置，调整Nimbus和Supervisor。
+
+
+## 第四章：Topology的并行度 ##
+1.在Storm中，真正运行Topo的主要有三个实体：工作进程（Worker）、Executor(线程)和任务。
+
+2.并行度：在Storm中，并行度描述了工作进程数据，以及Executor的数量和Storm中的任务数量。
+    
+    目前Stormd的配置优先级如下：
+    default.yaml < storm.yaml < Topology的具体配置 < 内部组件的具体配置 < 外部组件的具体配置
+
+3.Storm的一个非常好的功能就是：你可以动态地去增加或者减少工作进程数或者Executor数量，而不用重启集群或者Topology，这叫做rebalancing。
+
+![](http://static.open-open.com/lib/uploadImg/20160202/20160202214850_441.png)
+
+
+
+## 第五章：消息的可靠处理 ##
+
+1.Storm可以确保Spout发送出来的每个消息都被完整地处理。
+
+2.一个消息从Spout中发送出来，可能导致成百上千个消息基于此消息而创建。这些消息形成一个树状结构，我们称之为“Tuple Tree”。
+
+![](http://img.blog.csdn.net/20141202192541361?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvc3VpZmVuZzMwNTE=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/Center)
+
+
+3.那么什么条件下，Storm才会认为一个从Spout发送出来的消息被完整地处理了呢？
+	
+- Tuple Tree不在生长；
+- Tuple Tree中的任何消息都被标记为“已处理”；
+
+4.Storm使用open方法中提供的Collector向他的输出流中发送一个或者多个消息，每发送一个消息，Spout都会给这个消息提供一个id，它将被用于标示这个消息。
+
+ 当检测到一个消息的衍生出来的Tuple Tree被完整地处理后，Storm会调用Spout中的ack方法，将此消息的id作为参数传入；同理，如果某消息处理超时，则此消息对用的Spout的fail方法就会被调用，传入的参数为此消息的id。
+    
+    注意：一个消息只会由发送它的那个Spout任务调用ack或fail，绝不会由其他的Spout任务来应答。
+
+5.锚定：为tuple tree中指定的节点增加一个新的节点，我们称之为锚定。锚定是在我们发送消息的同时进行的。
+
+6.Storm系统中有一组叫做“acker”的特殊任务，它负责跟踪DAG中的每个消息。
+而系统使用一种哈希算法根据Spout消息的id确定由哪个acker跟踪此消息派生出来的tuple tree。因为每个消息都知道与之相对应的根消息的id,因此它知道应该与哪个acker通信。
+
+7.acker任务保存了Spout消息id到一对值的映射。第一个值就是Spout任务的id，通过这个id，acker就知道消息处理完成时该通知哪个Spout任务；第二个值是一个64bit的数字，称为“ack val”，它是树中所有消息随即id的异或结果。ack val代表了整棵树的状态。
+
+8.Supervisor和Nimbus是无状态的，因此这两种节点的失败不会影响当前正在运行的任务，只要及时将它重新启动即可。
+
+
+## 第六章：一致性事物 ##
+
+1.Storm是一个分布式的流处理系统，利用锚定和ack机制保证所有的tuple都被成功处理。但是如何保证出错的tuple只被处理一个呢？Storm提供了Transactional Topology，用来解决这个问题。
+
+2.简单设计①：强顺序流，就是将tuple流变成强顺序的，并且每次处理一个tuple。将tuple id和1（1为已经处理）形成一个对照关系存储到数据库中，当数据库中存贮的id和当前tuple id不同时，数据库的消息总数加1，同事更新数据库的值，否则这条消息已经被处理。但是这种机制无法实现分布式计算。
+
+3.简单设计②：强顺序batch流，每次处理一组tuple，称为一个batch。一个batch内的tuple可以并行处理。类似简单设计已，只不过这次数据库中存储的是batch id。为了确保一个batch内的所有tuple都被处理完了，Storm提供了CoordinateBolt.但是，强顺序batch也无法做到分布式计算。
+
+4.CoordinateBolt原理：
+
+- 真正计算的Bolt外面封装了一个CoordinateBolt。我们将真正执行计算的bolt称为real bolt.
+
+- CoordianteBolt记录两个值：有哪些task给我发送了tuple；以及我给哪些task发tuple.
+
+- Real Bolt发出一个tuple后，其外层的CoordinateBolt会记录下来这个tuple发送给了哪个task.
+
+- 等所有的tuple都发完，CoordinateBolt通过另一个特殊的Stream以emitDirect的方式告诉所有它发送tuple的task，它发送了多少tuple给这个task。下游的task会将这个数字和自己接受到的tuple的数字进行对比，如果相等，则说明处理完了所有的tuple。
+
+以此类推，下游的CoordinateBolt会重复上述步骤。
+
+
+5.Transactional Topology
+
+Storm提供的Transactional Topology将batch计算分为两个阶段，process和commit阶段。process阶段可以同时处理多个batch，不用保证其顺序性；而commit阶段保证batch的强顺序性，并且一次只能处理一个batch。
+
+
+图晚些再奉上......
+
