@@ -155,3 +155,21 @@ Storm提供的Transactional Topology将batch计算分为两个阶段，process�
 
 图晚些再奉上......
 
+
+
+## 第七章：Trident的特性 ##
+
+
+
+1. Trident是对Storm的更高一层的抽象,除了提供一套简单易用的流数据处理API之外，它以batch(一组tuples)为单位进行处理，这样一来，可以使得一些处理更简单和高效。
+
+
+
+2.  我们知道把Bolt的运行状态仅仅保存在内存中是不可靠的，如果一个node挂掉，那么这个node上的任务就会被重新分配，但是之前的状态是无法恢复的。因此，比较聪明的方式就是把storm的计算状态信息持久化到database中，基于这一点，trident就变得尤为重要。因为在处理大数据时，我们在与database打交道时通常会采用批处理的方式来避免给它带来压力，而trident恰恰是以batch groups的形式处理数据，并提供了一些聚合功能的API。Trident也支持存储到其他介质如数据库、Memcached等处。
+3.  Trident提供了事物支持，由于数据是按批发送到节点上的，Trident对每批数据都分配了一个transaction id。将这批数据和transaction id同时存储到某些介质中（如Memcached中）。Trident会比较memcached中的transaction id 和新到达数据的transaction id，如果同一批数据被重复发送，那么transaction id就会等于Memcached中记录的transaction id。
+4.  Trident API 实践
+
+ [http://www.bubuko.com/infodetail-467560.html](http://www.bubuko.com/infodetail-467560.html)
+
+
+5.总结：   Storm是一个实时流计算框架，Trident是对storm的一个更高层次的抽象，Trident最大的特点以batch的形式处理stream。
